@@ -1,10 +1,14 @@
 import { Plugin } from "@opencode/plugin/tui"
 import { createMemo, For, Match, Show, Switch } from "solid-js"
 import { DialogMcp } from "../../component/dialog-mcp"
+import { useAnimations } from "../../config"
+import { SPINNER_FRAMES } from "../../component/spinner-frames"
+import "../../component/spinner-renderable"
 
 export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }) {
   const [view, updateView] = props.context.storage.store("view", { initial: { open: true } })
   const theme = props.context.theme
+  const animations = useAnimations()
   const session = createMemo(() => props.context.data.session.get(props.sessionID))
   const list = createMemo(() => props.context.data.location.mcp.server.list(session()?.location) ?? [])
   const on = createMemo(() => list().filter((item) => item.status.status === "connected").length)
@@ -59,16 +63,25 @@ export function SidebarMcp(props: { context: Plugin.Context; sessionID: string }
                   ))
                 }
               >
+                <box width={1} flexShrink={0}>
+                  <Show
+                    when={item.status.status === "pending" && animations()}
+                    fallback={<text fg={dot(item.status.status)}>{item.status.status === "disabled" ? "◦" : "●"}</text>}
+                  >
+                    <spinner frames={SPINNER_FRAMES} interval={80} color={dot(item.status.status)} />
+                  </Show>
+                </box>
                 <text
-                  flexShrink={0}
-                  style={{
-                    fg: dot(item.status.status),
-                  }}
+                  fg={item.status.status === "disabled" ? theme.text.muted : theme.text.base}
+                  wrapMode="none"
+                  truncate
+                  flexGrow={1}
+                  flexShrink={1}
+                  minWidth={0}
                 >
-                  •
-                </text>
-                <text fg={theme.text.base} wrapMode="none" truncate flexGrow={1} flexShrink={1} minWidth={0}>
-                  <b>{item.name}</b>
+                  <Show when={item.status.status !== "disabled"} fallback={item.name}>
+                    <b>{item.name}</b>
+                  </Show>
                 </text>
                 <text
                   fg={item.status.status === "failed" ? theme.text.feedback.error.base : theme.text.muted}

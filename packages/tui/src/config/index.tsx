@@ -380,6 +380,12 @@ export function useConfig() {
   return value
 }
 
+/** Whether interface animations are on; on outside a config provider, e.g. in plugin previews and tests. */
+export function useAnimations() {
+  const value = useContext(ConfigContext)
+  return () => value?.data.animations ?? true
+}
+
 /** Reactive accessor for the temporary "new-designs" experiment. */
 export function useNewDesigns() {
   const config = useConfig()
