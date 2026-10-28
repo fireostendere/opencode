@@ -3,15 +3,10 @@ import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
 
 // Looping animations (spinners, sweeps, shimmers) run on one shared motion clock per renderer.
 // Every animating node asks for the next tick from onUpdate; one timer then requests one frame that
-// carries all of them. Motion time advances one STEP per tick, so a blurred terminal (another VS Code
-// terminal tab, another window) simply plays the same motion in slow motion at one tick per second:
-// it still looks alive, and costs a twelfth of the redraws.
+// carries all of them, at a steady 12.5 fps. Focus does not change the cadence: an unfocused terminal
+// is often still on screen (a split, the editor or chat focused beside it), and terminals already skip
+// rendering a hidden tab.
 export const MOTION_STEP = 80
-const BLURRED_STEP = 1_000
-
-const [focused, setFocused] = createSignal(true)
-/** Whether the terminal has keyboard focus, as reported by focus events (assumed focused until told otherwise). */
-export const terminalFocused = focused
 
 export class Motion {
   private ticks = 0
@@ -19,12 +14,9 @@ export class Motion {
   private readonly wanters = new Set<object>()
   private readonly listeners = new Set<() => void>()
 
-  constructor(private readonly renderer: CliRenderer) {
-    renderer.on("focus", () => this.focus(true))
-    renderer.on("blur", () => this.focus(false))
-  }
+  constructor(private readonly renderer: CliRenderer) {}
 
-  /** Motion time in milliseconds: advances by MOTION_STEP per tick, whatever the wall-clock cadence. */
+  /** Motion time in milliseconds: advances by MOTION_STEP per tick. */
   get time() {
     return this.ticks * MOTION_STEP
   }
@@ -53,7 +45,7 @@ export class Motion {
 
   private schedule() {
     if (this.timer !== undefined) return
-    this.timer = this.renderer.clock.setTimeout(this.tick, focused() ? MOTION_STEP : BLURRED_STEP)
+    this.timer = this.renderer.clock.setTimeout(this.tick, MOTION_STEP)
   }
 
   private cancel() {
@@ -69,15 +61,6 @@ export class Motion {
     for (const listener of this.listeners) listener()
     if (this.listeners.size > 0) this.schedule()
     this.renderer.requestRender()
-  }
-
-  private focus(value: boolean) {
-    if (value === focused()) return
-    setFocused(value)
-    // Reschedule a pending tick at the new cadence.
-    if (this.timer === undefined) return
-    this.cancel()
-    this.schedule()
   }
 }
 

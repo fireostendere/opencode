@@ -92,7 +92,7 @@ test("requests its own frames while leaving the renderer idle, and stops when de
   expect(spinner.clock.pendingTimerCount).toBe(0)
 })
 
-test("spinners share one motion tick, which slows to a second while the terminal is blurred", async () => {
+test("spinners share one motion tick, and losing focus does not slow them", async () => {
   await using spinner = await mount(() => (
     <box flexDirection="row">
       <spinner frames={["a", "b"]} interval={80} />
@@ -101,17 +101,10 @@ test("spinners share one motion tick, which slows to a second while the terminal
   ))
   expect(spinner.clock.pendingTimerCount).toBe(1)
   expect(await spinner.step(80)).toBe("by")
-
+  // A terminal is often visible while unfocused (a split, the editor beside it).
   spinner.renderer.emit("blur")
-  try {
-    expect(await spinner.step(80)).toBe("by")
-    expect(await spinner.step(919)).toBe("by")
-    // One second of wall time plays one step of motion.
-    expect(await spinner.step(1)).toBe("ax")
-  } finally {
-    spinner.renderer.emit("focus")
-  }
-  expect(spinner.clock.pendingTimerCount).toBe(1)
+  expect(await spinner.step(80)).toBe("ax")
+  spinner.renderer.emit("focus")
   expect(await spinner.step(80)).toBe("by")
 })
 

@@ -1,5 +1,4 @@
 import { createEffect, createSignal, onCleanup, type Accessor } from "solid-js"
-import { terminalFocused } from "./motion"
 
 type AnimatableValue = number | readonly number[]
 type AnimatableTarget = Record<string, AnimatableValue>
@@ -69,7 +68,7 @@ export function createAnimatable<T extends AnimatableTarget>(
   rebuild(initial)
 
   const step: AnimationTask = (now) => {
-    if (!enabled() || !terminalFocused()) {
+    if (!enabled()) {
       jump(target)
       return false
     }
@@ -88,8 +87,7 @@ export function createAnimatable<T extends AnimatableTarget>(
   function animate(next: T) {
     if (sameTarget(next)) return
     target = clone(next)
-    // An unfocused terminal skips straight to the end state: nobody is watching the motion.
-    if (!enabled() || !terminalFocused() || !sameShape(next)) return jump(next)
+    if (!enabled() || !sameShape(next)) return jump(next)
 
     started = performance.now()
     previous = started
