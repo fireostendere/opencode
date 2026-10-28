@@ -74,11 +74,11 @@ test("an attention glow becomes idle after ignition", async () => {
 
 test.each([
   // A requested frame draws asynchronously, on the same 5 ms clock step or a later one depending on the event loop,
-  // so frames alone come 50 to 55 ms apart.
-  { name: "alone", other: 0, min: 18, max: 20 },
+  // so frames alone come 80 to 85 ms apart.
+  { name: "alone", other: 0, min: 11, max: 13 },
   { name: "beside a 25 fps animation", other: 40, min: 25, max: 25 },
   { name: "beside a 50 fps animation", other: 20, min: 50, max: 50 },
-])("a running pulse adds frames only up to 20 fps, $name", async (item) => {
+])("a running pulse adds frames only up to the 12.5 fps motion tick, $name", async (item) => {
   await using pulse = await mount(() => ({ active: true }))
   const frames = await pulse.run(1000, item.other)
   expect(frames).toBeGreaterThanOrEqual(item.min)
@@ -86,18 +86,19 @@ test.each([
   expect(pulse.renderer.root.liveCount).toBe(0)
 })
 
-test("a running pulse changes its level at most 20 times a second while the renderer draws at 50 fps", async () => {
+test("a running pulse changes its level at most once per motion tick while the renderer draws at 50 fps", async () => {
   const levels: number[] = []
   await using pulse = await mount(() => ({ active: true, onLevel: (level) => levels.push(level) }))
   expect(await pulse.run(2000, 20)).toBe(100)
   expect(levels.length).toBeGreaterThan(10)
-  expect(levels.length).toBeLessThanOrEqual(40)
+  expect(levels.length).toBeLessThanOrEqual(26)
 })
 
 test("the sweep shows the same colors at the same time at any frame rate", async () => {
   await using slow = await mount(() => ({ active: true }))
   await using fast = await mount(() => ({ active: true }))
-  for (const ms of [300, 700, 1400, 2800]) {
+  // Steps land 300, 1000, 600 and 200 ms into a sweep cycle.
+  for (const ms of [300, 700, 2400, 2400]) {
     await slow.run(ms)
     await fast.run(ms, 20)
     await slow.renderOnce()
@@ -105,6 +106,16 @@ test("the sweep shows the same colors at the same time at any frame rate", async
     expect(slow.colors()).toEqual(fast.colors())
     expect(new Set(slow.colors()).size).toBeGreaterThan(1)
   }
+})
+
+test("a running tab rests between sweeps", async () => {
+  await using pulse = await mount(() => ({ active: true }))
+  await pulse.run(2000)
+  await pulse.renderOnce()
+  expect(new Set(pulse.colors()).size).toBe(1)
+  await pulse.run(1100)
+  await pulse.renderOnce()
+  expect(new Set(pulse.colors()).size).toBeGreaterThan(1)
 })
 
 test("a pulse stops requesting frames when the run ends", async () => {

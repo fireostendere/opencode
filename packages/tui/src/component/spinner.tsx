@@ -1,4 +1,6 @@
-import { createEffect, createSignal, onCleanup, Show } from "solid-js"
+import { Show } from "solid-js"
+import { useRenderer } from "@opentui/solid"
+import { createMotionTime, MOTION_STEP } from "../ui/motion"
 import { useTheme } from "../context/theme"
 import { useConfig } from "../config"
 import type { JSX } from "@opentui/solid"
@@ -13,12 +15,8 @@ export function Spinner(props: { children?: JSX.Element; color?: RGBA; shimmer?:
   const theme = useTheme()
   const config = useConfig().data
   const color = () => props.color ?? theme.text.muted
-  const [frame, setFrame] = createSignal(0)
-  createEffect(() => {
-    if (!(config.animations ?? true) || !props.shimmer) return
-    const timer = setInterval(() => setFrame((value) => (value + 1) % SPINNER_FRAMES.length), 80)
-    onCleanup(() => clearInterval(timer))
-  })
+  const time = createMotionTime(useRenderer(), () => (config.animations ?? true) && !!props.shimmer)
+  const frame = () => Math.floor(time() / MOTION_STEP) % SPINNER_FRAMES.length
   // A bare spinner beside a long sibling shrinks to a fractional width that rounds to 0, so the
   // glyph paints on top of the row gap. Only a labeled spinner may shrink (to wrap its text).
   return (

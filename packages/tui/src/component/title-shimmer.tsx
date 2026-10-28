@@ -9,6 +9,7 @@ import {
 } from "@opentui/core"
 import { extend } from "@opentui/solid"
 import { coast, intensityAt, smootherstep } from "./tab-pulse"
+import { motionFor, type Motion } from "../ui/motion"
 
 type TitleShimmerOptions = TextOptions & {
   rename?: { title: string; pending: boolean }
@@ -32,11 +33,15 @@ export class TitleShimmerRenderable extends TextRenderable {
   private elapsed = 0
   private blend = 0
   private fresh = true
+  private wasAnimating = false
   private arrival: number | undefined
   private scratch: OptimizedBuffer | undefined
   private previous: OptimizedBuffer | undefined
   private mask = new Float32Array(0)
   private matrix = new Float32Array(16)
+  // Not live: the shimmer steps on the shared motion clock with every other animation on screen.
+  private readonly motion: Motion
+  private updatedAt = 0
 
   constructor(ctx: RenderContext, options: TitleShimmerOptions) {
     super(ctx, options)
@@ -46,7 +51,7 @@ export class TitleShimmerRenderable extends TextRenderable {
     this._backdrop = options.backdrop ?? RGBA.defaultBackground()
     this.matrix[15] = 1
     this.updateBackdrop()
-    this.live = this.animating
+    this.motion = motionFor(ctx)
   }
 
   private get animating() {
@@ -100,8 +105,8 @@ export class TitleShimmerRenderable extends TextRenderable {
   }
 
   private changed() {
-    if (!this.live && this.animating) this.fresh = true
-    this.live = this.animating
+    if (this.animating) this.fresh ||= !this.wasAnimating
+    this.wasAnimating = this.animating
     if (!this.animating) {
       this.previous?.destroy()
       this.previous = undefined
@@ -109,11 +114,18 @@ export class TitleShimmerRenderable extends TextRenderable {
     this.requestRender()
   }
 
-  protected override renderSelf(buffer: OptimizedBuffer, deltaTime = 0) {
+  protected override onUpdate() {
+    if (this.animating) this.motion.want(this)
+    else this.motion.release(this)
+  }
+
+  protected override renderSelf(buffer: OptimizedBuffer) {
     if (!this.visible || this.isDestroyed || !Number.isFinite(this.width) || this.width <= 0 || this.height <= 0) return
     if (!this.animating) return super.renderSelf(buffer)
-    // A newly live title must not inherit time spent idle before its fade started.
-    const delta = this.fresh ? 0 : deltaTime
+    // A newly animating title must not inherit time spent idle before its fade started.
+    const now = this.motion.time
+    const delta = this.fresh ? 0 : now - this.updatedAt
+    this.updatedAt = now
     this.fresh = false
     this.elapsed = (this.elapsed + delta) % SHIMMER_DURATION
     if (this.arrival !== undefined) {
@@ -127,7 +139,7 @@ export class TitleShimmerRenderable extends TextRenderable {
       0,
       Math.min(1, this.blend + (this.shimmering || this.arrival !== undefined ? delta : -delta) / SHIMMER_FADE),
     )
-    this.live = this.animating
+    this.wasAnimating = this.animating
     if (!this.animating) {
       this.previous?.destroy()
       this.previous = undefined
@@ -260,6 +272,7 @@ export class TitleShimmerRenderable extends TextRenderable {
   }
 
   protected override destroySelf() {
+    this.motion.release(this)
     this.previous?.destroy()
     this.previous = undefined
     this.scratch?.destroy()

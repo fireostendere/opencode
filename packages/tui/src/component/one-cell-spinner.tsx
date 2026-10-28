@@ -2,6 +2,7 @@ import { parseColor, RGBA, type ColorInput } from "@opentui/core"
 import { useRenderer } from "@opentui/solid"
 import { createEffect, createMemo, createSignal, onCleanup, Show } from "solid-js"
 import { oneCellFrame, type OneCellMotion } from "../ui/one-cell-motion"
+import { motionFor } from "../ui/motion"
 import "./spinner-renderable"
 
 export function OneCellSpinner(props: {
@@ -42,21 +43,15 @@ export function OneCellSpinner(props: {
   })
   createEffect(() => {
     if (!sequenced() || props.animations === false || props.paused || complete()) return
-    let previous = performance.now()
-    // Leave idle gaps: mini awaits renderer.idle() to flush and admit prompts.
-    const timer = setInterval(
-      () => {
-        const now = performance.now()
-        setElapsed((value) => value + (now - previous) * (props.speed ?? 1))
-        previous = now
-      },
-      Math.max(
-        1000 / 60,
-        Math.min(40, props.animation.interval / (props.speed ?? 1) / (props.animation.pace?.initial ?? 1)),
-      ),
-    )
+    // Step on the shared motion clock; its timer leaves the idle gaps mini awaits with renderer.idle().
+    const motion = motionFor(renderer)
+    let previous = motion.time
+    const stop = motion.listen(() => {
+      setElapsed((value) => value + (motion.time - previous) * (props.speed ?? 1))
+      previous = motion.time
+    })
     onCleanup(() => {
-      clearInterval(timer)
+      stop()
       renderer.requestRender()
     })
   })

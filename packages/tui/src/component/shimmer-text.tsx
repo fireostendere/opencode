@@ -3,6 +3,7 @@ import { extend, type JSX } from "@opentui/solid"
 import { splitProps } from "solid-js"
 import { MaskedTextRenderable } from "./masked-text"
 import { coast, intensityAt } from "./tab-pulse"
+import { motionFor, type Motion } from "../ui/motion"
 
 type ShimmerTextOptions = TextOptions & {
   shimmer: RGBA
@@ -10,9 +11,10 @@ type ShimmerTextOptions = TextOptions & {
 
 const DURATION = 1200
 
+// Not live: the sweep follows the shared motion clock, so it steps with every other animation on screen.
 class ShimmerTextRenderable extends MaskedTextRenderable {
   private _shimmer = RGBA.defaultForeground()
-  private elapsed = 0
+  private readonly motion: Motion
 
   constructor(ctx: RenderContext, options: ShimmerTextOptions) {
     super(ctx, options)
@@ -21,7 +23,7 @@ class ShimmerTextRenderable extends MaskedTextRenderable {
     this.matrix[11] = this._shimmer.b
     this.matrix[15] = 1
     if (options.shimmer) this.shimmer = options.shimmer
-    this.live = true
+    this.motion = motionFor(ctx)
   }
 
   set shimmer(value: RGBA) {
@@ -33,11 +35,20 @@ class ShimmerTextRenderable extends MaskedTextRenderable {
     this.requestRender()
   }
 
-  protected override renderSelf(buffer: OptimizedBuffer, deltaTime = 0) {
+  protected override onUpdate() {
+    this.motion.want(this)
+  }
+
+  protected override destroySelf() {
+    this.motion.release(this)
+    super.destroySelf()
+  }
+
+  protected override renderSelf(buffer: OptimizedBuffer) {
     if (!this.visible || this.isDestroyed || !Number.isFinite(this.width) || this.width <= 0 || this.height <= 0) return
-    this.elapsed = (this.elapsed + deltaTime) % DURATION
+    const elapsed = this.motion.time % DURATION
     this.renderMasked(buffer, 0, (end) => {
-      const front = -4 + coast(this.elapsed / DURATION) * (end + 22)
+      const front = -4 + coast(elapsed / DURATION) * (end + 22)
       return (column) => intensityAt(column, front, 4, 18)
     })
   }

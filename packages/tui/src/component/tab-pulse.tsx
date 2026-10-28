@@ -3,12 +3,11 @@ import {
   OptimizedBuffer,
   Renderable,
   RGBA,
-  type Clock,
   type RenderableOptions,
   type RenderContext,
-  type TimerHandle,
 } from "@opentui/core"
 import { extend } from "@opentui/solid"
+import { motionFor, type Motion } from "../ui/motion"
 
 type TabPulseOptions = RenderableOptions<TabPulseRenderable> & {
   edge?: "above" | "below"
@@ -41,6 +40,9 @@ type TabPulseOptions = RenderableOptions<TabPulseRenderable> & {
 export const clamp = (value: number) => Math.max(0, Math.min(1, value))
 export const smootherstep = (value: number) => value * value * value * (value * (value * 6 - 15) + 10)
 const RUN_DURATION = 2_800
+// One sweep crosses the tab in the first part of each cycle, then the tab rests: a breath rather than a scanner,
+// and a resting tab repaints nothing.
+const RUN_SWEEP_SHARE = 0.55
 const RUN_ATTACK = 450
 const RUN_HEAD = 4
 const RUN_TAIL = 18
@@ -62,8 +64,6 @@ const GLOW_RELEASE_PEAK = 1.25
 const GLOW_TAIL = 12
 const GLOW_OPACITY = 0.16
 const DEFAULT_FOREGROUND = RGBA.defaultForeground()
-// The sweep front crosses a 32-cell tab at up to about 24 cells per second, so 20 fps steps it about a cell at a time.
-const FRAME_INTERVAL = 1000 / 20
 export const intensityAt = (index: number, front: number, head: number, tail: number) => {
   const distance = front - index
   return distance < 0 ? smootherstep(clamp(1 + distance / head)) : smootherstep(clamp(1 - distance / tail))
@@ -418,25 +418,22 @@ class PulseState {
   private sweepFronts: [number, number] = [0, 0]
 
   fronts(width: number) {
-    const cycles = this.sweepClock / RUN_DURATION
-    const progress = cycles % 1
+    const progress = Math.min(1, ((this.sweepClock / RUN_DURATION) % 1) / RUN_SWEEP_SHARE)
     const start = -RUN_HEAD
     const end = width - 1 + RUN_TAIL
-    const secondProgress = cycles < 0.5 ? 0 : (cycles + 0.5) % 1
     this.sweepFronts[0] = start + coast(progress) * (end - start)
-    this.sweepFronts[1] = start + coast(secondProgress) * (end - start)
+    // The second front stays parked past the tail, where it lights nothing.
+    this.sweepFronts[1] = end
     return this.sweepFronts
   }
 }
 
-// Not live: a live node holds the renderer at its full frame rate. The pulse steps in whole FRAME_INTERVALs of
-// elapsed time on whatever frames the renderer draws, and requests a frame only when no other frame comes in time.
+// Not live: a live node holds the renderer at its full frame rate. The pulse advances with the shared motion clock,
+// so it steps on the same ticks as every spinner on screen, and frames drawn for other reasons add no motion.
 class TabPulseRenderable extends Renderable {
-  private readonly clock: Clock
-  private timer: TimerHandle | undefined
+  private readonly motion: Motion
   private updatedFrame = -1
-  // Elapsed time not yet stepped into the pulse; slightly negative after a step that rounded up.
-  private pending = 0
+  private updatedAt = 0
   private _enabled: boolean
   private inner: PulseState
   private outer: PulseState
@@ -468,7 +465,7 @@ class TabPulseRenderable extends Renderable {
     const outerGlow = options.outerGlow ?? glow
     if (!(ctx instanceof CliRenderer)) throw new Error("TabPulse requires a renderer clock")
     super(ctx, { ...options, height: 1 })
-    this.clock = ctx.clock
+    this.motion = motionFor(ctx)
     this._enabled = enabled
     this.inner = new PulseState({
       enabled,
@@ -642,41 +639,26 @@ class TabPulseRenderable extends Renderable {
     this.requestRender()
   }
 
-  private stop() {
-    if (this.timer === undefined) return
-    this.clock.clearTimeout(this.timer)
-    this.timer = undefined
-  }
-
-  protected override onUpdate(deltaTime: number): void {
-    this.stop()
+  protected override onUpdate(): void {
     if (!this.inner.live && !this.outer.live) {
-      this.pending = 0
+      this.motion.release(this)
+      this.updatedFrame = -1
       return
     }
-    // Count time only across consecutive frames, not the renderer's idle gap before the pulse started or reappeared.
-    if (this.updatedFrame === this._ctx.frameId - 1) this.pending += deltaTime
-    this.updatedFrame = this._ctx.frameId
-    // Round up within 1 ms so timer jitter does not skip a step.
-    const step = Math.floor((this.pending + 1) / FRAME_INTERVAL) * FRAME_INTERVAL
-    if (step > 0) {
-      this.pending -= step
-      this.inner.advance(step)
-      this.outer.advance(step)
-      if (!this.inner.live && !this.outer.live) return
+    // Advance only across consecutive frames, not the renderer's idle gap before the pulse started or reappeared.
+    const now = this.motion.time
+    if (this.updatedFrame === this._ctx.frameId - 1 && now > this.updatedAt) {
+      this.inner.advance(now - this.updatedAt)
+      this.outer.advance(now - this.updatedAt)
     }
-    // Wait most of an interval after any frame, so frames drawn for other reasons carry the pulse without extra ones.
-    this.timer = this.clock.setTimeout(
-      () => {
-        this.timer = undefined
-        this.requestRender()
-      },
-      Math.max(FRAME_INTERVAL - this.pending, FRAME_INTERVAL * 0.9),
-    )
+    this.updatedFrame = this._ctx.frameId
+    this.updatedAt = now
+    if (this.inner.live || this.outer.live) this.motion.want(this)
+    else this.motion.release(this)
   }
 
   protected override destroySelf() {
-    this.stop()
+    this.motion.release(this)
     super.destroySelf()
   }
 

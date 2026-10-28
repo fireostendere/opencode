@@ -3,14 +3,13 @@ import {
   parseColor,
   Renderable,
   RGBA,
-  type Clock,
   type ColorInput,
   type OptimizedBuffer,
   type RenderableOptions,
   type RenderContext,
-  type TimerHandle,
 } from "@opentui/core"
 import { extend } from "@opentui/solid"
+import { motionFor, type Motion } from "../ui/motion"
 import { stringWidth } from "../util/string-width"
 import { SPINNER_FRAMES } from "./spinner-frames"
 
@@ -32,9 +31,9 @@ type SpinnerOptions = RenderableOptions<SpinnerRenderable> & {
 const graphemes = new Intl.Segmenter(undefined, { granularity: "grapheme" })
 
 // Not live: a live node keeps the renderer running, so renderer.idle(), which mini and the CLI await, never resolves.
-// A timer requests each frame instead. Core skips onUpdate for hidden and culled nodes, so the timer stops with them.
+// The shared motion clock requests frames instead. Core skips onUpdate for hidden and culled nodes, so they stop asking.
 export class SpinnerRenderable extends Renderable {
-  private readonly clock: Clock
+  private readonly motion: Motion
   private frameTexts: string[] = []
   private glyphs: { char: string; width: number }[][] = []
   private frameWidth = 0
@@ -45,12 +44,12 @@ export class SpinnerRenderable extends Renderable {
   private index = 0
   private elapsed = 0
   private updatedFrame = -1
-  private timer: TimerHandle | undefined
+  private updatedAt = 0
 
   constructor(ctx: RenderContext, options: SpinnerOptions = {}) {
     if (!(ctx instanceof CliRenderer)) throw new Error("Spinner requires a renderer clock")
     super(ctx, options)
-    this.clock = ctx.clock
+    this.motion = motionFor(ctx)
     this._interval = options.interval ?? 80
     this._autoplay = options.autoplay ?? true
     this._color = toColor(options.color ?? RGBA.defaultForeground())
@@ -98,31 +97,23 @@ export class SpinnerRenderable extends Renderable {
   }
 
   private restart() {
-    this.stop()
+    this.motion.release(this)
     this.elapsed = 0
     this.updatedFrame = -1
     this.requestRender()
   }
 
-  private stop() {
-    if (this.timer === undefined) return
-    this.clock.clearTimeout(this.timer)
-    this.timer = undefined
-  }
-
-  protected override onUpdate(deltaTime: number) {
+  protected override onUpdate() {
     if (!this._autoplay || this.glyphs.length < 2) return
-    // Count time only across consecutive frames, not the renderer's idle gap before this spinner appeared or resumed.
-    if (this.updatedFrame === this._ctx.frameId - 1) this.elapsed += deltaTime
+    // Count motion time only across consecutive frames, not while this spinner was hidden or paused.
+    const now = this.motion.time
+    if (this.updatedFrame === this._ctx.frameId - 1) this.elapsed += now - this.updatedAt
     this.updatedFrame = this._ctx.frameId
+    this.updatedAt = now
     const steps = Math.floor(this.elapsed / this._interval)
     this.index = (this.index + steps) % this.glyphs.length
     this.elapsed -= steps * this._interval
-    if (this.timer !== undefined) return
-    this.timer = this.clock.setTimeout(() => {
-      this.timer = undefined
-      this.requestRender()
-    }, this._interval - this.elapsed)
+    this.motion.want(this)
   }
 
   protected override renderSelf(buffer: OptimizedBuffer) {
@@ -140,7 +131,7 @@ export class SpinnerRenderable extends Renderable {
   }
 
   protected override destroySelf() {
-    this.stop()
+    this.motion.release(this)
     super.destroySelf()
   }
 }

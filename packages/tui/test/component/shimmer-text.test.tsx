@@ -31,7 +31,11 @@ test("title shimmer paints while pending and through the rename wipe", async () 
   setPending(false)
   await app.renderOnce()
   expect(app.captureCharFrame()).toContain("Untitled session")
-  clock.advance(500)
-  await app.renderOnce()
+  // The wipe steps on motion ticks, each drawn as its own frame.
+  for (let elapsed = 0; elapsed < 500; elapsed += 80) {
+    clock.advance(80)
+    await app.renderOnce()
+  }
   expect(app.captureCharFrame()).toContain("Generated title")
+  expect(clock.pendingTimerCount).toBe(0)
 })

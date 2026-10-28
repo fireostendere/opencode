@@ -34,7 +34,7 @@ async function mount(spinner: () => JSX.Element) {
 }
 
 test.each([
-  { name: "advances one frame per elapsed interval", autoplay: true, steps: [79, 1, 80, 160], frames: "abcb" },
+  { name: "advances one frame per motion tick", autoplay: true, steps: [79, 1, 80, 80], frames: "abca" },
   { name: "holds the first frame without autoplay", autoplay: false, steps: [80, 160], frames: "aa" },
 ])("$name", async (item) => {
   await using spinner = await mount(() => <spinner frames={["a", "b", "c"]} interval={80} autoplay={item.autoplay} />)
@@ -90,6 +90,29 @@ test("requests its own frames while leaving the renderer idle, and stops when de
   setShown(false)
   await spinner.renderOnce()
   expect(spinner.clock.pendingTimerCount).toBe(0)
+})
+
+test("spinners share one motion tick, which slows to a second while the terminal is blurred", async () => {
+  await using spinner = await mount(() => (
+    <box flexDirection="row">
+      <spinner frames={["a", "b"]} interval={80} />
+      <spinner frames={["x", "y"]} interval={80} />
+    </box>
+  ))
+  expect(spinner.clock.pendingTimerCount).toBe(1)
+  expect(await spinner.step(80)).toBe("by")
+
+  spinner.renderer.emit("blur")
+  try {
+    expect(await spinner.step(80)).toBe("by")
+    expect(await spinner.step(919)).toBe("by")
+    // One second of wall time plays one step of motion.
+    expect(await spinner.step(1)).toBe("ax")
+  } finally {
+    spinner.renderer.emit("focus")
+  }
+  expect(spinner.clock.pendingTimerCount).toBe(1)
+  expect(await spinner.step(80)).toBe("by")
 })
 
 test.each([
