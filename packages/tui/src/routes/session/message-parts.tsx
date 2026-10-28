@@ -1,4 +1,4 @@
-import { createMemo, createSignal, Match, Show, Switch } from "solid-js"
+import { createEffect, createMemo, createSignal, Match, Show, Switch } from "solid-js"
 import { RGBA, TextAttributes, type MouseEvent } from "@opentui/core"
 import { useRenderer, type JSX } from "@opentui/solid"
 import type {
@@ -15,6 +15,9 @@ import { Locale } from "../../util/locale"
 import { use } from "./render-context"
 import { generateThinkingSyntax } from "./thinking-syntax"
 import { canonicalToolName } from "../../util/tool-display"
+import { useAnimations } from "../../config"
+import { tint } from "../../theme/color"
+import { createAnimatable, tween } from "../../ui/animation"
 
 export const INLINE_TOOL_ICON_WIDTH = 2
 
@@ -199,6 +202,26 @@ export function TextPart(props: {
   )
 }
 
+/**
+ * A brief glow, 1 easing to 0, when a step finishes while it is on screen. Rows that load already finished (history)
+ * never glow, so opening a long session stays still.
+ */
+const GLOW = RGBA.fromInts(255, 255, 255)
+
+export function createSettle(done: () => boolean) {
+  const motion = createAnimatable({ level: 0 }, { enabled: useAnimations(), transition: tween({ duration: 0.6 }) })
+  let pending = !done()
+  createEffect(() => {
+    const finished = done()
+    if (finished && pending) {
+      motion.jump({ level: 0.6 })
+      motion.animate({ level: 0 })
+    }
+    pending = !finished
+  })
+  return () => motion.value().level
+}
+
 export function InlineToolRow(props: {
   icon: string
   iconColor?: RGBA
@@ -218,6 +241,12 @@ export function InlineToolRow(props: {
   onMouseOut?: () => void
   onMouseUp?: (event: MouseEvent) => void
 }) {
+  const settle = createSettle(() => Boolean(props.complete || props.failed))
+  const iconColor = () => {
+    const base = props.failed ? props.errorColor : (props.iconColor ?? props.color)
+    const level = settle()
+    return level > 0 && base ? tint(base, GLOW, level) : base
+  }
   return (
     <box paddingLeft={3} onMouseOver={props.onMouseOver} onMouseOut={props.onMouseOut} onMouseUp={props.onMouseUp}>
       <Switch>
@@ -238,7 +267,7 @@ export function InlineToolRow(props: {
             <box flexDirection="row">
               <text
                 width={INLINE_TOOL_ICON_WIDTH}
-                fg={props.failed ? props.errorColor : (props.iconColor ?? props.color)}
+                fg={iconColor()}
                 attributes={props.denied ? TextAttributes.STRIKETHROUGH : undefined}
               >
                 {props.icon}

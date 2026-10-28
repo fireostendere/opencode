@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { For } from "solid-js"
+import { createRoot, createSignal, For } from "solid-js"
+import { RGBA } from "@opentui/core"
 import { testRender, type JSX } from "@opentui/solid"
 import {
   InlineToolRow,
@@ -13,6 +14,7 @@ import {
   subagentModelLabel,
   toolDisplay,
 } from "../../../src/routes/session"
+import { createSettle } from "../../../src/routes/session/message-parts"
 
 let testSetup: Awaited<ReturnType<typeof testRender>> | undefined
 
@@ -252,5 +254,35 @@ describe("TUI inline tool wrapping", () => {
 
   test("snapshots expanded tool errors under the tool text", async () => {
     expect(await renderFrame(() => <Fixture errorExpanded />, { width: 72, height: 12 })).toMatchSnapshot()
+  })
+})
+
+describe("TUI inline tool settle", () => {
+  const RED = RGBA.fromInts(200, 40, 40)
+  const icon = () => testSetup!.captureSpans().lines[0]!.spans.find((span) => span.text.includes("✓"))!.fg
+
+  test("a step that finishes on screen glows, then settles", async () => {
+    const [done, setDone] = createSignal(false)
+    const level = createRoot(() => createSettle(done))
+    expect(level()).toBe(0)
+    setDone(true)
+    expect(level()).toBeGreaterThan(0.5)
+    await Bun.sleep(700)
+    expect(level()).toBe(0)
+  })
+
+  test("a step that loads already finished does not glow", async () => {
+    testSetup = await testRender(
+      () => (
+        <box width={40}>
+          <InlineToolRow icon="✓" color={RED} complete={true} pending="Reading">
+            Read file.ts
+          </InlineToolRow>
+        </box>
+      ),
+      { width: 40, height: 2 },
+    )
+    await testSetup.renderOnce()
+    expect(icon().equals(RED)).toBe(true)
   })
 })
