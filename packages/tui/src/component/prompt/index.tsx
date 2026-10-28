@@ -41,7 +41,7 @@ import { type AutocompleteOption, type AutocompleteRef, Autocomplete } from "./a
 import { useRenderer, useTerminalDimensions } from "@opentui/solid"
 import { Locale } from "../../util/locale"
 import { errorMessage } from "../../util/error"
-import { createColors, createFrames } from "../../ui/spinner"
+import { PromptActivity } from "./activity"
 import { useDialog } from "../../ui/dialog"
 import { DialogIntegration } from "../dialog-integration"
 import { useConnected } from "../use-connected"
@@ -1638,25 +1638,6 @@ export function Prompt(props: PromptProps) {
     onMove: () => void move.open(),
   })
 
-  const spinnerDef = createMemo(() => {
-    const color = promptDisplay().agentColor ?? theme.border.base
-    return {
-      frames: createFrames({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-      color: createColors({
-        color,
-        style: "blocks",
-        inactiveFactor: 0.6,
-        // enableFading: false,
-        minAlpha: 0.3,
-      }),
-    }
-  })
   const maxHeight = createMemo(() => Math.max(6, Math.floor(dimensions().height / 3)))
 
   const promptBg = createMemo(() => theme.decrease(theme.background.raised.base))
@@ -1895,11 +1876,14 @@ export function Prompt(props: PromptProps) {
               >
                 <Switch>
                   <Match when={status() === "running"}>
-                    <box flexDirection="row" gap={1} flexGrow={1} justifyContent="flex-start">
-                      <box marginLeft={1}>
-                        <Show when={config.animations ?? true} fallback={<text fg={theme.text.muted}>[⋯]</text>}>
-                          <spinner color={spinnerDef().color} frames={spinnerDef().frames} interval={40} />
-                        </Show>
+                    <box flexDirection="row" gap={2} flexGrow={1} justifyContent="flex-start">
+                      <box marginLeft={1} flexShrink={1} minWidth={0}>
+                        <PromptActivity
+                          sessionID={props.sessionID ?? ""}
+                          color={promptDisplay().agentColor ?? theme.border.base}
+                          muted={theme.text.muted}
+                          animations={animationsEnabled()}
+                        />
                       </box>
                       <PromptInterruptStatus
                         armed={store.interrupt > 0}
